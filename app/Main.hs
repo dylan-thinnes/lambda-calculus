@@ -15,9 +15,6 @@ import Data.Word
 
 import Data.List (elemIndex)
 import Data.Char
-import Text.ParserCombinators.ReadP
-  ((<++), ReadP, readP_to_S, skipSpaces, eof, between, char, sepBy1, munch1, satisfy)
-import Control.Applicative
 import System.Environment
 import Data.Foldable
 import Control.Monad
@@ -27,11 +24,12 @@ import Data.Functor.Foldable (cata)
 import Data.Functor.Foldable.TH (makeBaseFunctor)
 
 import Options.Applicative
+  (Parser(..), option, auto, short, long, value, metavar, helpDoc, info, prefs, helper, fullDesc, failureCode)
 import Options.Applicative.Help.Pretty (Doc(..), text, (<+>), vsep, align, bold)
 
 import Data.ByteString (ByteString (..), pack)
 
-import qualified Eager as E
+import Eager
 
 class Pretty a where
   pretty' :: a -> String
@@ -141,34 +139,34 @@ instance Pretty Named where
       go _ (Var name) = name
 
 instance Read Named where
-  readsPrec _ = E.readsWith top
+  readsPrec _ = readsWith top
     where
-    top :: E.LL1 Char Named
+    top :: LL1 Char Named
     top = do
-      let name :: E.LL1 Char String
-          name = E.many (E.popIf isAlpha)
+      let name :: LL1 Char String
+          name = many (popIf isAlpha)
 
-      funcArgs <- E.many $ do
-        E.skipSpaces
-        head <- E.peek
+      funcArgs <- many $ do
+        skipSpaces
+        head <- peek
         if | head `elem` "λ\\" -> Just <$> do
-              E.pop
-              E.skipSpaces
+              pop
+              skipSpaces
               var <- name
-              E.skipSpaces
-              "No '.' found after lambda's variable" E.! E.popIf ('.' ==)
+              skipSpaces
+              "No '.' found after lambda's variable" ! popIf ('.' ==)
               body <- top
               pure $ Abs var body
            | isAlpha head -> Just . Var <$> name
            | head == '(' -> Just <$> do
-              E.pop
+              pop
               inner <- top
-              "No matching closing bracket found." E.! E.popIf (')' ==)
+              "No matching closing bracket found." ! popIf (')' ==)
               pure inner
            | otherwise -> pure Nothing
 
       case funcArgs of
-        [] -> E.err "No input for expression to parse."
+        [] -> err "No input for expression to parse."
         (func:args) -> pure $ foldl App func args
 
 instance Pretty DeBruijn where
@@ -184,31 +182,31 @@ instance Pretty DeBruijn where
       go _ (Var idx) = show idx
 
 instance Read DeBruijn where
-  readsPrec _ = E.readsWith top
+  readsPrec _ = readsWith top
     where
-    top :: E.LL1 Char DeBruijn
+    top :: LL1 Char DeBruijn
     top = do
-      let idx :: E.LL1 Char Int
-          idx = read <$> E.many (E.popIf isDigit)
+      let idx :: LL1 Char Int
+          idx = read <$> many (popIf isDigit)
 
-      funcArgs <- E.many $ do
-        E.skipSpaces
-        head <- E.peek
+      funcArgs <- many $ do
+        skipSpaces
+        head <- peek
         if | head `elem` "λ\\" -> Just <$> do
-              E.pop
-              E.skipSpaces
+              pop
+              skipSpaces
               body <- top
               pure $ Abs () body
            | isDigit head -> Just . Var <$> idx
            | head == '(' -> Just <$> do
-              E.pop
+              pop
               inner <- top
-              "No matching closing bracket found." E.! E.popIf (')' ==)
+              "No matching closing bracket found." ! popIf (')' ==)
               pure inner
            | otherwise -> pure Nothing
 
       case funcArgs of
-        [] -> E.err "No input for expression to parse."
+        [] -> err "No input for expression to parse."
         (func:args) -> pure $ foldl App func args
 
 toDeBruijn :: Named -> DeBruijn
