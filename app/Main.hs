@@ -23,7 +23,7 @@ import "base" System.Environment
 
 import "bytestring" Data.ByteString (ByteString (..), pack)
 
-import "optparse-applicative" Options.Applicative (Parser(..), option, auto, short, long, value, metavar, helpDoc, info, prefs, helper, fullDesc, failureCode)
+import "optparse-applicative" Options.Applicative hiding (many)
 import "optparse-applicative" Options.Applicative.Help.Pretty (Doc(..), text, (<+>), vsep, align, bold)
 
 import "recursion-schemes" Data.Functor.Foldable (cata)
@@ -102,18 +102,21 @@ optionsInfo = info (helper <*> options) $ fullDesc <> failureCode 1
 main :: IO ()
 main = do
   contents <- getContents
-  args <- getArgs
-  if "-d" `elem` args
-    then do
+  options <- customExecParser optionsPrefs optionsInfo
+  case inputMode options of
+    DeBruijnIO -> do
       let body = read @DeBruijn contents
       print $ pretty body
       print $ pretty $ encodeBits body
       pure ()
-    else do
+    NamedIO -> do
       let body = read @Named contents
       print $ pretty body
       print $ pretty $ toDeBruijn body
       print $ pretty $ encodeBits $ toDeBruijn body
+      pure ()
+    mode -> do
+      putStrLn $ unwords ["Input mode", show mode, "not yet supported."]
       pure ()
 
 type Named = LCG String String
