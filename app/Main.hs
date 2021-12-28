@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeSynonymInstances #-}
 {-# LANGUAGE FlexibleInstances #-}
@@ -29,6 +30,8 @@ import Options.Applicative
 import Options.Applicative.Help.Pretty (Doc(..), text, (<+>), vsep, align, bold)
 
 import Data.ByteString (ByteString (..), pack)
+
+import qualified Eager as E
 
 class Pretty a where
   pretty' :: a -> String
@@ -258,3 +261,56 @@ bitsToTerm (Bits bools) = foldr cons nil $ map (\b -> if b then true else false)
     false = toDeBruijn $ read "λx.λy.y"
     cons x y = Abs () $ App (App (Var 1) x) y
     nil = false
+
+named :: E.LL1 Char Named
+named = do
+  let name :: E.LL1 Char String
+      name = E.many (E.popIf isAlpha)
+
+  funcArgs <- E.many $ do
+    E.skipSpaces
+    head <- E.peek
+    if | head `elem` "λ\\" -> Just <$> do
+          E.pop
+          E.skipSpaces
+          var <- name
+          E.skipSpaces
+          "No '.' found after lambda's variable" E.! E.popIf ('.' ==)
+          body <- named
+          pure $ Abs var body
+       | isAlpha head -> Just . Var <$> name
+       | head == '(' -> Just <$> do
+          E.pop
+          inner <- named
+          "No matching closing bracket found." E.! E.popIf (')' ==)
+          pure inner
+       | otherwise -> pure Nothing
+
+  case funcArgs of
+    [] -> E.err "No input for expression to parse."
+    (func:args) -> pure $ foldl App func args
+
+debruijn :: E.LL1 Char DeBruijn
+debruijn = do
+  let idx :: E.LL1 Char Int
+      idx = read <$> E.many (E.popIf isDigit)
+
+  funcArgs <- E.many $ do
+    E.skipSpaces
+    head <- E.peek
+    if | head `elem` "λ\\" -> Just <$> do
+          E.pop
+          E.skipSpaces
+          body <- debruijn
+          pure $ Abs () body
+       | isDigit head -> Just . Var <$> idx
+       | head == '(' -> Just <$> do
+          E.pop
+          inner <- debruijn
+          "No matching closing bracket found." E.! E.popIf (')' ==)
+          pure inner
+       | otherwise -> pure Nothing
+
+  case funcArgs of
+    [] -> E.err "No input for expression to parse."
+    (func:args) -> pure $ foldl App func args
