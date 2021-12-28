@@ -141,26 +141,35 @@ instance Pretty Named where
       go _ (Var name) = name
 
 instance Read Named where
-  readsPrec _ = readP_to_S parser
+  readsPrec _ = E.readsWith top
     where
-    parser = between skipSpaces (skipSpaces >> eof) top
+    top :: E.LL1 Char Named
+    top = do
+      let name :: E.LL1 Char String
+          name = E.many (E.popIf isAlpha)
 
-    top, app, paren, var, abs :: ReadP Named
-    top = abs <++ app
-    app = do
-      func:args <- sepBy1 (paren <|> var) skipSpaces
-      pure $ foldl App func args
-    paren = between (char '(' >> skipSpaces) (skipSpaces >> char ')') top
-    var = Var <$> munch1 isAlpha
-    abs = do
-      satisfy (`elem` "λ\\")
-      skipSpaces
-      name <- munch1 isAlpha
-      skipSpaces
-      char '.'
-      skipSpaces
-      body <- top
-      pure $ Abs name body
+      funcArgs <- E.many $ do
+        E.skipSpaces
+        head <- E.peek
+        if | head `elem` "λ\\" -> Just <$> do
+              E.pop
+              E.skipSpaces
+              var <- name
+              E.skipSpaces
+              "No '.' found after lambda's variable" E.! E.popIf ('.' ==)
+              body <- top
+              pure $ Abs var body
+           | isAlpha head -> Just . Var <$> name
+           | head == '(' -> Just <$> do
+              E.pop
+              inner <- top
+              "No matching closing bracket found." E.! E.popIf (')' ==)
+              pure inner
+           | otherwise -> pure Nothing
+
+      case funcArgs of
+        [] -> E.err "No input for expression to parse."
+        (func:args) -> pure $ foldl App func args
 
 instance Pretty DeBruijn where
   pretty' = go False
@@ -175,23 +184,32 @@ instance Pretty DeBruijn where
       go _ (Var idx) = show idx
 
 instance Read DeBruijn where
-  readsPrec _ = readP_to_S parser
+  readsPrec _ = E.readsWith top
     where
-    parser = between skipSpaces (skipSpaces >> eof) top
+    top :: E.LL1 Char DeBruijn
+    top = do
+      let idx :: E.LL1 Char Int
+          idx = read <$> E.many (E.popIf isDigit)
 
-    top, app, paren, var, abs :: ReadP DeBruijn
-    top = abs <++ app
-    app = do
-      func:args <- sepBy1 (paren <|> var) skipSpaces
-      pure $ foldl App func args
-    paren = between (char '(' >> skipSpaces) (skipSpaces >> char ')') top
-    var = Var . read <$> munch1 isDigit
-    abs = do
-      satisfy (`elem` "λ\\.")
-      skipSpaces
-      body <- top
-      skipSpaces
-      pure $ Abs () body
+      funcArgs <- E.many $ do
+        E.skipSpaces
+        head <- E.peek
+        if | head `elem` "λ\\" -> Just <$> do
+              E.pop
+              E.skipSpaces
+              body <- top
+              pure $ Abs () body
+           | isDigit head -> Just . Var <$> idx
+           | head == '(' -> Just <$> do
+              E.pop
+              inner <- top
+              "No matching closing bracket found." E.! E.popIf (')' ==)
+              pure inner
+           | otherwise -> pure Nothing
+
+      case funcArgs of
+        [] -> E.err "No input for expression to parse."
+        (func:args) -> pure $ foldl App func args
 
 toDeBruijn :: Named -> DeBruijn
 toDeBruijn exp = cata alg exp []
@@ -261,56 +279,3 @@ bitsToTerm (Bits bools) = foldr cons nil $ map (\b -> if b then true else false)
     false = toDeBruijn $ read "λx.λy.y"
     cons x y = Abs () $ App (App (Var 1) x) y
     nil = false
-
-named :: E.LL1 Char Named
-named = do
-  let name :: E.LL1 Char String
-      name = E.many (E.popIf isAlpha)
-
-  funcArgs <- E.many $ do
-    E.skipSpaces
-    head <- E.peek
-    if | head `elem` "λ\\" -> Just <$> do
-          E.pop
-          E.skipSpaces
-          var <- name
-          E.skipSpaces
-          "No '.' found after lambda's variable" E.! E.popIf ('.' ==)
-          body <- named
-          pure $ Abs var body
-       | isAlpha head -> Just . Var <$> name
-       | head == '(' -> Just <$> do
-          E.pop
-          inner <- named
-          "No matching closing bracket found." E.! E.popIf (')' ==)
-          pure inner
-       | otherwise -> pure Nothing
-
-  case funcArgs of
-    [] -> E.err "No input for expression to parse."
-    (func:args) -> pure $ foldl App func args
-
-debruijn :: E.LL1 Char DeBruijn
-debruijn = do
-  let idx :: E.LL1 Char Int
-      idx = read <$> E.many (E.popIf isDigit)
-
-  funcArgs <- E.many $ do
-    E.skipSpaces
-    head <- E.peek
-    if | head `elem` "λ\\" -> Just <$> do
-          E.pop
-          E.skipSpaces
-          body <- debruijn
-          pure $ Abs () body
-       | isDigit head -> Just . Var <$> idx
-       | head == '(' -> Just <$> do
-          E.pop
-          inner <- debruijn
-          "No matching closing bracket found." E.! E.popIf (')' ==)
-          pure inner
-       | otherwise -> pure Nothing
-
-  case funcArgs of
-    [] -> E.err "No input for expression to parse."
-    (func:args) -> pure $ foldl App func args

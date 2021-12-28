@@ -19,6 +19,22 @@ run action stream = runIdentity $ runT action stream
 runT :: LL1T m stream a -> [stream] -> m (Either Err (a, [stream]))
 runT action stream = runExceptT $ runStateT action stream
 
+fullParse :: LL1 Char a -> String -> Either String a
+fullParse parser stream =
+  case run (skipSpaces >> parser >>= \a -> skipSpaces >> pure a) stream of
+    Left EOFError -> Left "End of input reached unexpectedly."
+    Left (ParseErr msg) -> Left $ "Parse error: " ++ msg
+    Right (a, rest)
+      | null rest -> Right a
+      | otherwise -> Left $ "Input left over: " ++ rest
+
+readsWith :: LL1 Char a -> ReadS a
+readsWith parser stream =
+  case run (skipSpaces >> parser >>= \a -> skipSpaces >> pure a) stream of
+    Left EOFError -> error "End of input reached unexpectedly."
+    Left (ParseErr msg) -> error $ "Parse error: " ++ msg
+    Right (a, rest) -> [(a, rest)]
+
 peek :: Monad m => LL1T m stream stream
 peek = do
   stream <- get
