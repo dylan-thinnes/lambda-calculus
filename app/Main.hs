@@ -8,26 +8,26 @@
 {-# LANGUAGE DeriveFunctor #-}
 {-# LANGUAGE DeriveFoldable #-}
 {-# LANGUAGE DeriveTraversable #-}
+{-# LANGUAGE ImportQualifiedPost #-}
+{-# LANGUAGE PackageImports #-}
 module Main where
 
-import Prelude hiding (abs)
-import Data.Word
+import "base" Control.Monad
+import "base" Data.Bifunctor
+import "base" Data.Char
+import "base" Data.Foldable
+import "base" Data.List (elemIndex)
+import "base" Data.Word
+import "base" Prelude hiding (abs)
+import "base" System.Environment
 
-import Data.List (elemIndex)
-import Data.Char
-import System.Environment
-import Data.Foldable
-import Control.Monad
-import Data.Bifunctor
+import "bytestring" Data.ByteString (ByteString (..), pack)
 
-import Data.Functor.Foldable (cata)
-import Data.Functor.Foldable.TH (makeBaseFunctor)
+import "optparse-applicative" Options.Applicative (Parser(..), option, auto, short, long, value, metavar, helpDoc, info, prefs, helper, fullDesc, failureCode)
+import "optparse-applicative" Options.Applicative.Help.Pretty (Doc(..), text, (<+>), vsep, align, bold)
 
-import Options.Applicative
-  (Parser(..), option, auto, short, long, value, metavar, helpDoc, info, prefs, helper, fullDesc, failureCode)
-import Options.Applicative.Help.Pretty (Doc(..), text, (<+>), vsep, align, bold)
-
-import Data.ByteString (ByteString (..), pack)
+import "recursion-schemes" Data.Functor.Foldable (cata)
+import "recursion-schemes" Data.Functor.Foldable.TH (makeBaseFunctor)
 
 import Eager
 
