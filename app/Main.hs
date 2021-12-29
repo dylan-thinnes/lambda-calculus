@@ -1,4 +1,16 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE ConstraintKinds #-}
+{-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE PartialTypeSignatures #-}
+{-# LANGUAGE PolyKinds #-}
+{-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DefaultSignatures #-}
+{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE FunctionalDependencies #-}
+{-# LANGUAGE UndecidableInstances #-}
+{-# LANGUAGE TypeOperators #-}
+{-# LANGUAGE DataKinds #-}
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE MultiWayIf #-}
 {-# LANGUAGE TypeApplications #-}
 {-# LANGUAGE TypeSynonymInstances #-}
@@ -17,9 +29,13 @@ import "base" Data.Bifunctor
 import "base" Data.Char
 import "base" Data.Foldable
 import "base" Data.List (elemIndex)
+import "base" Data.Monoid (Endo(..))
 import "base" Data.Word
 import "base" Prelude hiding (abs)
 import "base" System.Environment
+import "base" GHC.Generics
+import "base" GHC.TypeLits
+import "base" Data.Proxy
 
 import "bytestring" Data.ByteString (ByteString (..), pack)
 
@@ -30,6 +46,8 @@ import "recursion-schemes" Data.Functor.Foldable (cata)
 import "recursion-schemes" Data.Functor.Foldable.TH (makeBaseFunctor)
 
 import Eager
+
+import Debug.Trace
 
 class Pretty a where
   pretty' :: a -> String
@@ -280,3 +298,147 @@ bitsToTerm (Bits bools) = foldr cons nil $ map (\b -> if b then true else false)
     false = toDeBruijn $ read "λx.λy.y"
     cons x y = Abs () $ App (App (Var 1) x) y
     nil = false
+
+data A = X | Y Bool Bool Bool | Z Int
+  deriving (Show, Generic)
+
+data B = B Int Int
+  deriving (Show, Generic)
+
+class Churchable a where
+  churchEncode :: a -> DeBruijn
+
+  default churchEncode :: (AttachSumTag (Rep a), Generic a, Churchable1 (AttachSumTagd (Rep a))) => a -> DeBruijn
+  churchEncode = churchEncode1 . attachSumTag . from
+
+instance Churchable Bool where
+  churchEncode True = toDeBruijn $ read "λx.λy.x"
+  churchEncode False = toDeBruijn $ read "λx.λy.y"
+
+instance (Churchable a, Churchable b) => Churchable (a, b) where
+  churchEncode (a, b) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b]
+
+instance (Churchable a, Churchable b, Churchable c) => Churchable (a, b, c) where
+  churchEncode (a, b, c) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b, churchEncode c]
+
+instance Churchable ()
+instance Churchable A
+instance Churchable B
+
+instance Churchable Int where
+  churchEncode i = Abs () $ Abs () $ foldr (.) id (replicate i (App (Var 2))) (Var 1)
+
+class Churchable1 a where
+  churchEncode1 :: a x -> DeBruijn
+
+-- Handle sums
+type family CountSums (a :: * -> *) :: Nat
+type instance CountSums (f :+: g) = CountSums f + CountSums g
+type instance CountSums (C1 meta f) = 1
+type instance CountSums (D1 meta f) = CountSums f
+
+data SumTag (depth :: Nat) (index :: Nat) f a = SumTag (f a)
+  deriving Show
+
+type AttachSumTag f = AttachSumTag' (CountSums f) 0 f
+type AttachSumTagd f = AttachSumTag'd (CountSums f) 0 f
+attachSumTag :: forall f x. AttachSumTag f => f x -> AttachSumTagd f x
+attachSumTag = attachSumTag' (Proxy @(CountSums f)) (Proxy @0)
+
+class AttachSumTag' (depth :: Nat) (index :: Nat) (f :: * -> *) where
+  type AttachSumTag'd depth index f :: * -> *
+  attachSumTag' :: Proxy depth -> Proxy index -> f x -> AttachSumTag'd depth index f x
+
+instance AttachSumTag' depth (index + 1) g => AttachSumTag' depth index (f :+: g) where
+  type AttachSumTag'd depth index (f :+: g) =
+    SumTag depth index f :+: AttachSumTag'd depth (index + 1) g
+  attachSumTag' _ _ (L1 fx) = L1 $ SumTag fx
+  attachSumTag' _ _ (R1 gx) = R1 $ attachSumTag' (Proxy @depth) (Proxy @(index + 1)) gx
+
+instance AttachSumTag' depth index (C1 meta f) where
+  type AttachSumTag'd depth index (C1 meta f) = SumTag depth index (C1 meta f)
+  attachSumTag' _ _ = SumTag
+
+instance AttachSumTag' depth index f => AttachSumTag' depth index (D1 meta f) where
+  type AttachSumTag'd depth index (D1 meta f) = D1 meta (AttachSumTag'd depth index f)
+  attachSumTag' depth index = M1 . attachSumTag' depth index . unM1
+
+-- Handle products
+class ChurchApplicable (f :: * -> *) where
+  churchApplicable :: f x -> DeBruijn -> DeBruijn
+
+instance (Churchable1 f, ChurchApplicable (g :*: h)) => ChurchApplicable (f :*: (g :*: h)) where
+  churchApplicable (f :*: g) func = churchApplicable g (func `App` churchEncode1 f)
+
+instance (Churchable1 f, Churchable1 g) => ChurchApplicable (f :*: M1 tag meta g) where
+  churchApplicable (f :*: M1 g) func = (func `App` churchEncode1 f) `App` churchEncode1 g
+
+instance Churchable1 f => Churchable1 (C1 sMeta f) where
+  churchEncode1 (M1 fx) = churchEncode1 fx
+
+instance Churchable1 f => Churchable1 (S1 sMeta f) where
+  churchEncode1 (M1 fx) = churchEncode1 fx
+
+instance Churchable1 U1 where
+  churchEncode1 _ = Abs () $ Var 1
+
+instance Churchable a => Churchable1 (Rec0 a) where
+  churchEncode1 (K1 rec) = churchEncode rec
+
+-- Churchable1 instances
+instance (KnownNat depth, KnownNat index, ChurchApplicable (f :*: g))
+  => Churchable1 (SumTag depth index (C1 cMeta (f :*: g))) where
+  churchEncode1 (SumTag (M1 fgx)) =
+    let depth = fromIntegral $ natVal $ Proxy @depth
+        index = fromIntegral $ natVal $ Proxy @index
+        debruijnIndex = depth - index
+        absWrap = foldr (.) id $ replicate depth (Abs ())
+    in
+    absWrap $ churchApplicable fgx (Var debruijnIndex)
+
+instance (KnownNat depth, KnownNat index) =>
+  Churchable1 (SumTag depth index (C1 cMeta U1)) where
+  churchEncode1 _ =
+    let depth = fromIntegral $ natVal $ Proxy @depth
+        index = fromIntegral $ natVal $ Proxy @index
+        debruijnIndex = depth - index
+        absWrap = foldr (.) id $ replicate depth (Abs ())
+    in
+    absWrap $ Var debruijnIndex
+
+instance (KnownNat depth, KnownNat index) =>
+  Churchable1 (SumTag depth index (C1 cMeta (S1 sMeta U1))) where
+  churchEncode1 _ =
+    let depth = fromIntegral $ natVal $ Proxy @depth
+        index = fromIntegral $ natVal $ Proxy @index
+        debruijnIndex = depth - index
+        absWrap = foldr (.) id $ replicate depth (Abs ())
+    in
+     absWrap $ Var debruijnIndex
+
+instance (KnownNat depth, KnownNat index, Churchable a)
+  => Churchable1 (SumTag depth index (C1 cMeta (Rec0 a))) where
+  churchEncode1 (SumTag (M1 (K1 rec))) =
+    let depth = fromIntegral $ natVal $ Proxy @depth
+        index = fromIntegral $ natVal $ Proxy @index
+        debruijnIndex = depth - index
+        absWrap = foldr (.) id $ replicate depth (Abs ())
+    in
+    absWrap $ Var debruijnIndex `App` churchEncode rec
+
+instance (KnownNat depth, KnownNat index, Churchable a)
+  => Churchable1 (SumTag depth index (C1 cMeta (S1 sMeta (Rec0 a)))) where
+  churchEncode1 (SumTag (M1 (M1 (K1 rec)))) =
+    let depth = fromIntegral $ natVal $ Proxy @depth
+        index = fromIntegral $ natVal $ Proxy @index
+        debruijnIndex = depth - index
+        absWrap = foldr (.) id $ replicate depth (Abs ())
+    in
+    absWrap $ Var debruijnIndex `App` churchEncode rec
+
+instance (Churchable1 f, Churchable1 g) => Churchable1 (f :+: g) where
+  churchEncode1 (L1 f) = churchEncode1 @f f
+  churchEncode1 (R1 g) = churchEncode1 @g g
+
+instance Churchable1 f => Churchable1 (D1 meta f) where
+  churchEncode1 (M1 f) = churchEncode1 f
