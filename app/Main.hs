@@ -325,10 +325,6 @@ instance Churchable Int where
 class Churchable1 a where
   churchEncode1 :: a x -> DeBruijn
 
-type family SumDepth (f :: * -> *) :: Nat
-type instance SumDepth (f :+: g) = 1 + SumDepth g
-type instance SumDepth (C1 meta f) = 1
-
 -- Products, using a custom "handler" in case we're inside a sum
 class UseHandler (f :: * -> *) where
   useHandler :: f x -> DeBruijn -> DeBruijn
