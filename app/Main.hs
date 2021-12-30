@@ -311,14 +311,6 @@ instance (Churchable a, Churchable b) => Churchable (a, b) where
 instance (Churchable a, Churchable b, Churchable c) => Churchable (a, b, c) where
   churchEncode (a, b, c) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b, churchEncode c]
 
-instance Churchable ()
-
-data A = X | Y Bool Bool Bool | Z Int deriving (Show, Generic)
-instance Churchable A
-
-data B = B Int Int deriving (Show, Generic)
-instance Churchable B
-
 instance Churchable Int where
   churchEncode i = Abs () $ Abs () $ foldr (.) id (replicate i (App (Var 2))) (Var 1)
 
@@ -384,3 +376,16 @@ instance (KnownNat n, DepthToHandler (f :+: g) n) => Churchable1 (f :+: g) where
 -- Top-level recursion through D1
 instance Churchable1 f => Churchable1 (D1 meta f) where
   churchEncode1 = churchEncode1 . unM1
+
+-- Generic-deriving instances
+instance Churchable ()
+
+data A = X | Y Bool Bool Bool | Z Int deriving (Show, Generic)
+instance Churchable A
+
+data B = B Int Int deriving (Show, Generic)
+instance Churchable B
+
+data CC = CC1 Int | CC2 CC CC
+  deriving (Show, Generic)
+instance Churchable CC
