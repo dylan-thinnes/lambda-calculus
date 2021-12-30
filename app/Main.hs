@@ -121,13 +121,13 @@ main = do
     DeBruijnIO -> do
       let body = read @DeBruijn contents
       print $ pretty body
-      print $ pretty $ encodeBits body
+      print $ pretty $ toBits body
       pure ()
     NamedIO -> do
       let body = read @Named contents
       print $ pretty body
       print $ pretty $ toDeBruijn body
-      print $ pretty $ encodeBits $ toDeBruijn body
+      print $ pretty $ toBits $ toDeBruijn body
       pure ()
     mode -> do
       putStrLn $ unwords ["Input mode", show mode, "not yet supported."]
@@ -262,18 +262,18 @@ newtype Bits = Bits { unbits :: [Bool] }
 instance Pretty Bits where
   pretty' (Bits bools) = map (\b -> if b then '1' else '0') bools
 
-encodeBits :: DeBruijn -> Bits
-encodeBits = Bits . go
+toBits :: DeBruijn -> Bits
+toBits = Bits . go
   where
     go (Abs () body) = False : False : go body
     go (App func arg) = False : True : go func ++ go arg
     go (Var idx) = replicate idx True ++ [False]
 
-decodeBits :: Bits -> Either String DeBruijn
-decodeBits (Bits bools) =
+fromBits :: Bits -> Either String DeBruijn
+fromBits (Bits bools) =
   case go bools of
     Right (x, []) -> Right x
-    Right (x, leftover) -> Left $ "decodeBits: Too much input, " ++ show (length leftover) ++ " bits left over."
+    Right (x, leftover) -> Left $ "fromBits: Too much input, " ++ show (length leftover) ++ " bits left over."
     Left err -> Left err
   where
     go (False : False : rest) = fmap (first (Abs ())) $ go rest
