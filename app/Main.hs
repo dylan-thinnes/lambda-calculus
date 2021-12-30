@@ -367,15 +367,15 @@ instance Churchable1 U1 where
 
 -- Sums, accounting for total sum depth, dispatches to UseHandler
 class DepthToHandler (f :: * -> *) (n :: Nat) | f -> n where
-  depthToHandler :: Proxy n -> f x -> DeBruijn
+  depthToHandler :: f x -> DeBruijn
 
 instance (KnownNat n, UseHandler f, DepthToHandler g subDepth, n ~ (subDepth + 1))
   => DepthToHandler (f :+: g) n where
-  depthToHandler _ (L1 fx) = useHandler fx $ Var $ fromIntegral $ natVal $ Proxy @n
-  depthToHandler _ (R1 gx) = depthToHandler Proxy gx
+  depthToHandler (L1 fx) = useHandler fx $ Var $ fromIntegral $ natVal $ Proxy @n
+  depthToHandler (R1 gx) = depthToHandler gx
 
 instance UseHandler (M1 tag meta f) => DepthToHandler (M1 tag meta f) 1 where
-  depthToHandler _ fx = useHandler fx (Var 1)
+  depthToHandler fx = useHandler fx (Var 1)
 
 -- Use PassDepth to define Churchable1 for sums of products
 instance (KnownNat n, DepthToHandler (f :+: g) n) => Churchable1 (f :+: g) where
@@ -383,7 +383,7 @@ instance (KnownNat n, DepthToHandler (f :+: g) n) => Churchable1 (f :+: g) where
     let depth = fromIntegral $ natVal $ Proxy @n
         wrapAbs = foldr (.) id $ replicate depth (Abs ())
     in
-    wrapAbs $ depthToHandler Proxy fx
+    wrapAbs $ depthToHandler fx
 
 -- Top-level recursion through D1
 instance Churchable1 f => Churchable1 (D1 meta f) where
