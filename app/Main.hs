@@ -295,63 +295,63 @@ bitsToTerm (Bits bools) = foldr cons nil $ map (\b -> if b then true else false)
     cons x y = Abs () $ App (App (Var 1) x) y
     nil = false
 
-class Churchable a where
-  churchEncode :: a -> DeBruijn
+class Encodable a where
+  encode :: a -> DeBruijn
 
-  default churchEncode :: (Generic a, Churchable1 (Rep a)) => a -> DeBruijn
-  churchEncode = churchEncode1 . from
+  default encode :: (Generic a, Encodable1 (Rep a)) => a -> DeBruijn
+  encode = encode1 . from
 
-instance Churchable Bool where
-  churchEncode True = toDeBruijn $ read "λx.λy.x"
-  churchEncode False = toDeBruijn $ read "λx.λy.y"
+instance Encodable Bool where
+  encode True = toDeBruijn $ read "λx.λy.x"
+  encode False = toDeBruijn $ read "λx.λy.y"
 
-instance (Churchable a, Churchable b) => Churchable (a, b) where
-  churchEncode (a, b) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b]
+instance (Encodable a, Encodable b) => Encodable (a, b) where
+  encode (a, b) = Abs () $ foldl App (Var 1) [encode a, encode b]
 
-instance (Churchable a, Churchable b, Churchable c) => Churchable (a, b, c) where
-  churchEncode (a, b, c) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b, churchEncode c]
+instance (Encodable a, Encodable b, Encodable c) => Encodable (a, b, c) where
+  encode (a, b, c) = Abs () $ foldl App (Var 1) [encode a, encode b, encode c]
 
-instance Churchable Int where
-  churchEncode i = Abs () $ Abs () $ foldr (.) id (replicate i (App (Var 2))) (Var 1)
+instance Encodable Int where
+  encode i = Abs () $ Abs () $ foldr (.) id (replicate i (App (Var 2))) (Var 1)
 
-class Churchable1 a where
-  churchEncode1 :: a x -> DeBruijn
+class Encodable1 a where
+  encode1 :: a x -> DeBruijn
 
 -- Products, using a custom "handler" in case we're inside a sum
 class UseHandler (f :: * -> *) where
   useHandler :: f x -> DeBruijn -> DeBruijn
 
-instance (Churchable1 f, UseHandler (g :*: h)) => UseHandler (f :*: (g :*: h)) where
-  useHandler (f :*: gh) handler = useHandler gh $ handler `App` churchEncode1 f
+instance (Encodable1 f, UseHandler (g :*: h)) => UseHandler (f :*: (g :*: h)) where
+  useHandler (f :*: gh) handler = useHandler gh $ handler `App` encode1 f
 
-instance (Churchable1 f, Churchable1 g) => UseHandler (f :*: M1 tag meta g) where
-  useHandler (f :*: (M1 g)) handler = (handler `App` churchEncode1 f) `App` churchEncode1 g
+instance (Encodable1 f, Encodable1 g) => UseHandler (f :*: M1 tag meta g) where
+  useHandler (f :*: (M1 g)) handler = (handler `App` encode1 f) `App` encode1 g
 
 instance UseHandler f => UseHandler (M1 tag meta f) where
   useHandler (M1 fx) handler = useHandler fx handler
 
-instance Churchable a => UseHandler (Rec0 a) where
-  useHandler (K1 fx) handler = handler `App` churchEncode fx
+instance Encodable a => UseHandler (Rec0 a) where
+  useHandler (K1 fx) handler = handler `App` encode fx
 
 instance UseHandler U1 where
   useHandler U1 handler = handler
 
--- If we need Churchable1 over products, with no sums, at top-level, this pairs with C1 to create an instance
-instance UseHandler (f :*: g) => Churchable1 (f :*: g) where
-  churchEncode1 fgx = Abs () $ useHandler fgx (Var 1)
+-- If we need Encodable1 over products, with no sums, at top-level, this pairs with C1 to create an instance
+instance UseHandler (f :*: g) => Encodable1 (f :*: g) where
+  encode1 fgx = Abs () $ useHandler fgx (Var 1)
 
 -- Base cases for UseHandler / General cases for non-UseHandler
-instance Churchable1 f => Churchable1 (C1 meta f) where
-  churchEncode1 = churchEncode1 . unM1
+instance Encodable1 f => Encodable1 (C1 meta f) where
+  encode1 = encode1 . unM1
 
-instance Churchable1 f => Churchable1 (S1 meta f) where
-  churchEncode1 = churchEncode1 . unM1
+instance Encodable1 f => Encodable1 (S1 meta f) where
+  encode1 = encode1 . unM1
 
-instance Churchable a => Churchable1 (Rec0 a) where
-  churchEncode1 = churchEncode . unK1
+instance Encodable a => Encodable1 (Rec0 a) where
+  encode1 = encode . unK1
 
-instance Churchable1 U1 where
-  churchEncode1 _ = Abs () $ Var 1
+instance Encodable1 U1 where
+  encode1 _ = Abs () $ Var 1
 
 -- Sums, accounting for total sum depth, dispatches to UseHandler
 class DepthToHandler (f :: * -> *) (n :: Nat) | f -> n where
@@ -365,27 +365,27 @@ instance (KnownNat n, UseHandler f, DepthToHandler g subDepth, n ~ (subDepth + 1
 instance UseHandler (M1 tag meta f) => DepthToHandler (M1 tag meta f) 1 where
   depthToHandler fx = useHandler fx (Var 1)
 
--- Use PassDepth to define Churchable1 for sums of products
-instance (KnownNat n, DepthToHandler (f :+: g) n) => Churchable1 (f :+: g) where
-  churchEncode1 fx =
+-- Use PassDepth to define Encodable1 for sums of products
+instance (KnownNat n, DepthToHandler (f :+: g) n) => Encodable1 (f :+: g) where
+  encode1 fx =
     let depth = fromIntegral $ natVal $ Proxy @n
         wrapAbs = foldr (.) id $ replicate depth (Abs ())
     in
     wrapAbs $ depthToHandler fx
 
 -- Top-level recursion through D1
-instance Churchable1 f => Churchable1 (D1 meta f) where
-  churchEncode1 = churchEncode1 . unM1
+instance Encodable1 f => Encodable1 (D1 meta f) where
+  encode1 = encode1 . unM1
 
 -- Generic-deriving instances
-instance Churchable ()
+instance Encodable ()
 
 data A = X | Y Bool Bool Bool | Z Int deriving (Show, Generic)
-instance Churchable A
+instance Encodable A
 
 data B = B Int Int deriving (Show, Generic)
-instance Churchable B
+instance Encodable B
 
 data CC = CC1 Int | CC2 CC CC
   deriving (Show, Generic)
-instance Churchable CC
+instance Encodable CC
