@@ -295,12 +295,6 @@ bitsToTerm (Bits bools) = foldr cons nil $ map (\b -> if b then true else false)
     cons x y = Abs () $ App (App (Var 1) x) y
     nil = false
 
-data A = X | Y Bool Bool Bool | Z Int
-  deriving (Show, Generic)
-
-data B = B Int Int
-  deriving (Show, Generic)
-
 class Churchable a where
   churchEncode :: a -> DeBruijn
 
@@ -318,7 +312,11 @@ instance (Churchable a, Churchable b, Churchable c) => Churchable (a, b, c) wher
   churchEncode (a, b, c) = Abs () $ foldl App (Var 1) [churchEncode a, churchEncode b, churchEncode c]
 
 instance Churchable ()
+
+data A = X | Y Bool Bool Bool | Z Int deriving (Show, Generic)
 instance Churchable A
+
+data B = B Int Int deriving (Show, Generic)
 instance Churchable B
 
 instance Churchable Int where
